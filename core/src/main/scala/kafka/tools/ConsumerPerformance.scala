@@ -63,7 +63,7 @@ object ConsumerPerformance extends LazyLogging {
       val consumer = new KafkaConsumer[Array[Byte], Array[Byte]](config.props)
       consumer.subscribe(Pattern.compile(Whitelist(config.topic).regex))
       startMs = System.currentTimeMillis
-      consume(consumer, List(config.topic), config.numMessages, config.pollLoopTimeout, config, totalMessagesRead, totalBytesRead, joinGroupTimeInMs, startMs)
+      consume(consumer, config.topic, config.numMessages, config.pollLoopTimeout, config, totalMessagesRead, totalBytesRead, joinGroupTimeInMs, startMs)
       endMs = System.currentTimeMillis
 
       if (config.printMetrics) {
@@ -132,7 +132,7 @@ object ConsumerPerformance extends LazyLogging {
   }
 
   def consume(consumer: KafkaConsumer[Array[Byte], Array[Byte]],
-              topics: List[String],
+              topic: String,
               count: Long,
               timeout: Long,
               config: ConsumerPerfConfig,
@@ -147,14 +147,15 @@ object ConsumerPerformance extends LazyLogging {
     var joinStart = 0L
     var joinTimeMsInSingleRound = 0L
 
-    consumer.subscribe(topics.asJava, new ConsumerRebalanceListener {
-      def onPartitionsAssigned(partitions: util.Collection[TopicPartition]) {
-        joinTime.addAndGet(System.currentTimeMillis - joinStart)
-        joinTimeMsInSingleRound += System.currentTimeMillis - joinStart
-      }
-      def onPartitionsRevoked(partitions: util.Collection[TopicPartition]) {
-        joinStart = System.currentTimeMillis
-      }})
+    consumer.subscribe(Pattern.compile(Whitelist(config.topic).regex),
+      new ConsumerRebalanceListener {
+        def onPartitionsAssigned(partitions: util.Collection[TopicPartition]) {
+          joinTime.addAndGet(System.currentTimeMillis - joinStart)
+          joinTimeMsInSingleRound += System.currentTimeMillis - joinStart
+        }
+        def onPartitionsRevoked(partitions: util.Collection[TopicPartition]) {
+          joinStart = System.currentTimeMillis
+        }})
 
     // Now start the benchmark
     val startMs = System.currentTimeMillis
