@@ -1,14 +1,10 @@
-import time
-
 from ducktape.mark import parametrize
 from ducktape.mark.resource import cluster
 from ducktape.tests.test import Test
 
-from kafkatest.services.console_consumer import ConsoleConsumer
 from kafkatest.services.kafka import KafkaService
 from kafkatest.services.performance import ProducerPerformanceService, ConsumerPerformanceService, \
     compute_aggregate_throughput
-from kafkatest.services.verifiable_producer import VerifiableProducer
 from kafkatest.services.zookeeper import ZookeeperService
 from kafkatest.version import DEV_BRANCH, LATEST_0_10, KafkaVersion
 
@@ -27,7 +23,7 @@ class DownconversionMemoryTest(Test):
         self.batch_size = self.message_size * 50
         self.fetch_size = 12 * 1024 * self.message_size
         self.num_partitions = 12
-        self.topic = "test_topic"
+        self.topics = ["test_topic_1", "test_topic_2", "test_topic_3"]
         self.zk = ZookeeperService(self.test_context, num_nodes=1)
 
     def setUp(self):
@@ -37,7 +33,11 @@ class DownconversionMemoryTest(Test):
     @parametrize(producer_version=str(DEV_BRANCH), consumer_version=str(LATEST_0_10))
     def test_downconversion(self, producer_version, consumer_version):
         self.kafka = KafkaService(self.test_context, num_nodes=1, zk=self.zk, version=DEV_BRANCH,
-                                  topics={self.topic: {"partitions": self.num_partitions, "replication-factor": 1, 'configs': {"min.insync.replicas": 1}}},
+                                  topics={topic:
+                                              {"partitions": self.num_partitions,
+                                               "replication-factor": 1,
+                                               "configs": {"min.insync.replicas": 1}}
+                                          for topic in self.topics},
                                   heap_opts="-Xmx256M -Xms256M",
                                   jmx_object_names=['java.lang:type=Memory'],
                                   jmx_attributes=['HeapMemoryUsage'],
@@ -45,22 +45,22 @@ class DownconversionMemoryTest(Test):
         self.kafka.start()
 
         # seed kafka with messages
-        self.producer = ProducerPerformanceService(
-            self.test_context, 1, self.kafka,
-            topic=self.topic,
-            num_records=self.max_messages, record_size=self.message_size, throughput=-1, version=producer_version,
-            settings={
-                'acks': 1,
-                'batch.size': self.batch_size
-            }
-        )
-        self.producer.run()
-        self.logger.info("producer throughput: %s" % compute_aggregate_throughput(self.producer))
+        for topic in self.topics:
+            self.producer = ProducerPerformanceService(
+                self.test_context, 1, self.kafka,
+                topic=topic,
+                num_records=self.max_messages, record_size=self.message_size, throughput=-1, version=producer_version,
+                settings={
+                    'acks': 1,
+                    'batch.size': self.batch_size
+                }
+            )
+            self.producer.run()
 
         # consume
         self.consumer = ConsumerPerformanceService(
             self.test_context, self.num_consumers, self.kafka,
-            topic=self.topic, messages=self.max_messages, version=KafkaVersion(consumer_version), new_consumer=True)
+            topic="test_topic.*", messages=self.max_messages, version=KafkaVersion(consumer_version), new_consumer=True)
         self.consumer.group = "test-consumer-group"
         self.consumer.run()
 

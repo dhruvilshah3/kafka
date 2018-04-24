@@ -30,12 +30,10 @@ import org.apache.kafka.common.{Metric, MetricName, TopicPartition}
 import kafka.utils.{CommandLineUtils, ToolsUtils}
 import java.util.{Collections, Properties, Random}
 
-import kafka.consumer.Consumer
-import kafka.consumer.ConsumerConnector
-import kafka.consumer.KafkaStream
-import kafka.consumer.ConsumerTimeoutException
+import kafka.consumer.{Consumer, ConsumerConnector, ConsumerTimeoutException, KafkaStream, Whitelist}
 import java.text.SimpleDateFormat
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.regex.Pattern
 
 import com.typesafe.scalalogging.LazyLogging
 
@@ -63,7 +61,7 @@ object ConsumerPerformance extends LazyLogging {
     var startMs, endMs = 0L
     if (!config.useOldConsumer) {
       val consumer = new KafkaConsumer[Array[Byte], Array[Byte]](config.props)
-      consumer.subscribe(Collections.singletonList(config.topic))
+      consumer.subscribe(Pattern.compile(Whitelist(config.topic).regex))
       startMs = System.currentTimeMillis
       consume(consumer, List(config.topic), config.numMessages, 1000, config, totalMessagesRead, totalBytesRead, joinGroupTimeInMs, startMs)
       endMs = System.currentTimeMillis
