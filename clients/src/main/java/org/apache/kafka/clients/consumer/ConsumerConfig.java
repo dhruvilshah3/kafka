@@ -131,6 +131,14 @@ public class ConsumerConfig extends AbstractConfig {
     public static final int DEFAULT_FETCH_MAX_BYTES = 50 * 1024 * 1024;
 
     /**
+     * <code>internal.fetch.max.version</code>
+     */
+    public static final String FETCH_MAX_VERSION_CONFIG = "internal.fetch.max.version";
+    private static final String FETCH_MAX_VERSION_DOC = "Maximum Fetch API Version to use. This is an internal configuration for testing and must not be set in production environments. " +
+            "Defaults to -1 which means maximum available Fetch API Version will be used.";
+    public static final short DEFAULT_FETCH_MAX_VERSION = -1;
+
+    /**
      * <code>fetch.max.wait.ms</code>
      */
     public static final String FETCH_MAX_WAIT_MS_CONFIG = "fetch.max.wait.ms";
@@ -330,6 +338,12 @@ public class ConsumerConfig extends AbstractConfig {
                                         atLeast(0),
                                         Importance.MEDIUM,
                                         FETCH_MAX_BYTES_DOC)
+                                .define(FETCH_MAX_VERSION_CONFIG,
+                                        Type.SHORT,
+                                        DEFAULT_FETCH_MAX_VERSION,
+                                        atLeast(-1),
+                                        Importance.LOW,
+                                        FETCH_MAX_VERSION_DOC)
                                 .define(FETCH_MAX_WAIT_MS_CONFIG,
                                         Type.INT,
                                         500,

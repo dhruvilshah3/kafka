@@ -45,6 +45,7 @@ import org.apache.kafka.common.metrics.stats.Max;
 import org.apache.kafka.common.metrics.stats.Meter;
 import org.apache.kafka.common.metrics.stats.Min;
 import org.apache.kafka.common.metrics.stats.Value;
+import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.record.BufferSupplier;
 import org.apache.kafka.common.record.ControlRecordType;
@@ -103,6 +104,7 @@ public class Fetcher<K, V> implements SubscriptionState.Listener, Closeable {
     private final long retryBackoffMs;
     private final long requestTimeoutMs;
     private final int maxPollRecords;
+    private final short maxFetchApiVersion;
     private final boolean checkCrcs;
     private final Metadata metadata;
     private final FetchManagerMetrics sensors;
@@ -124,6 +126,7 @@ public class Fetcher<K, V> implements SubscriptionState.Listener, Closeable {
                    int maxWaitMs,
                    int fetchSize,
                    int maxPollRecords,
+                   short maxFetchApiVersion,
                    boolean checkCrcs,
                    Deserializer<K> keyDeserializer,
                    Deserializer<V> valueDeserializer,
@@ -146,6 +149,7 @@ public class Fetcher<K, V> implements SubscriptionState.Listener, Closeable {
         this.maxWaitMs = maxWaitMs;
         this.fetchSize = fetchSize;
         this.maxPollRecords = maxPollRecords;
+        this.maxFetchApiVersion = (maxFetchApiVersion == ConsumerConfig.DEFAULT_FETCH_MAX_VERSION) ? ApiKeys.FETCH.latestVersion() : maxFetchApiVersion;
         this.checkCrcs = checkCrcs;
         this.keyDeserializer = ensureExtended(keyDeserializer);
         this.valueDeserializer = ensureExtended(valueDeserializer);
@@ -191,7 +195,7 @@ public class Fetcher<K, V> implements SubscriptionState.Listener, Closeable {
             final Node fetchTarget = entry.getKey();
             final FetchSessionHandler.FetchRequestData data = entry.getValue();
             final FetchRequest.Builder request = FetchRequest.Builder
-                    .forConsumer(this.maxWaitMs, this.minBytes, data.toSend())
+                    .forConsumer(this.maxWaitMs, this.minBytes, this.maxFetchApiVersion, data.toSend())
                     .isolationLevel(isolationLevel)
                     .setMaxBytes(this.maxBytes)
                     .metadata(data.metadata())

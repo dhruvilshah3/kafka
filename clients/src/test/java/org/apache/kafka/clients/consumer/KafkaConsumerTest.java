@@ -1725,6 +1725,7 @@ public class KafkaConsumerTest {
                 maxWaitMs,
                 fetchSize,
                 maxPollRecords,
+                ConsumerConfig.DEFAULT_FETCH_MAX_VERSION,
                 checkCrcs,
                 keyDeserializer,
                 valueDeserializer,

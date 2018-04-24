@@ -264,9 +264,14 @@ public class FetchRequest extends AbstractRequest {
         private FetchMetadata metadata = FetchMetadata.LEGACY;
         private List<TopicPartition> toForget = Collections.<TopicPartition>emptyList();
 
+        public static Builder forConsumer(int maxWait, int minBytes, short maxFetchApiVersion, Map<TopicPartition, PartitionData> fetchData) {
+            return new Builder(ApiKeys.FETCH.oldestVersion(), maxFetchApiVersion,
+                CONSUMER_REPLICA_ID, maxWait, minBytes, fetchData);
+        }
+
         public static Builder forConsumer(int maxWait, int minBytes, Map<TopicPartition, PartitionData> fetchData) {
             return new Builder(ApiKeys.FETCH.oldestVersion(), ApiKeys.FETCH.latestVersion(),
-                CONSUMER_REPLICA_ID, maxWait, minBytes, fetchData);
+                    CONSUMER_REPLICA_ID, maxWait, minBytes, fetchData);
         }
 
         public static Builder forReplica(short allowedVersion, int replicaId, int maxWait, int minBytes,

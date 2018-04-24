@@ -18,7 +18,7 @@ class DownconversionMemoryTest(Test):
         self.producer_throughput = self.max_messages
         self.timeout_sec = 2*60
         self.num_producers = 1
-        self.num_consumers = 4
+        self.num_consumers = 7
         self.message_size = 1024
         self.batch_size = self.message_size * 50
         self.fetch_size = 12 * 1024 * self.message_size
@@ -65,11 +65,12 @@ class DownconversionMemoryTest(Test):
             self.kafka.start_jmx_tool(self.kafka.idx(node), node)
 
         # consume
-        consumer = ConsumerPerformanceService(
-            self.test_context, self.num_consumers, self.kafka,
-            topic="test_topic", messages=self.max_messages, version=KafkaVersion(consumer_version), new_consumer=True)
-        consumer.group = "test-consumer-group"
-        consumer.run()
+        for topic in self.topics:
+            consumer = ConsumerPerformanceService(
+                self.test_context, self.num_consumers, self.kafka,
+                topic=topic, messages=self.max_messages, version=KafkaVersion(consumer_version), new_consumer=True)
+            #consumer.group = "test-consumer-group"
+            consumer.run()
 
         self.kafka.read_jmx_output_all_nodes()
 

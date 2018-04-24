@@ -23,6 +23,7 @@ import org.apache.kafka.clients.Metadata;
 import org.apache.kafka.clients.MockClient;
 import org.apache.kafka.clients.NetworkClient;
 import org.apache.kafka.clients.NodeApiVersions;
+import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRebalanceListener;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.OffsetAndTimestamp;
@@ -2445,6 +2446,7 @@ public class FetcherTest {
                 maxWaitMs,
                 fetchSize,
                 maxPollRecords,
+                ConsumerConfig.DEFAULT_FETCH_MAX_VERSION,
                 true, // check crc
                 keyDeserializer,
                 valueDeserializer,
