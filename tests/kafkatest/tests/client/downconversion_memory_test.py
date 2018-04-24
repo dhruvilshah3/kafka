@@ -23,7 +23,7 @@ class DownconversionMemoryTest(Test):
         self.batch_size = self.message_size * 50
         self.fetch_size = 12 * 1024 * self.message_size
         self.num_partitions = 12
-        self.topics = ["test_topic_1", "test_topic_2", "test_topic_3"]
+        self.topics = ["test_topic"]
         self.zk = ZookeeperService(self.test_context, num_nodes=1)
 
     def setUp(self):
@@ -41,12 +41,13 @@ class DownconversionMemoryTest(Test):
                                   heap_opts="-Xmx256M -Xms256M",
                                   jmx_object_names=['java.lang:type=Memory'],
                                   jmx_attributes=['HeapMemoryUsage'],
-                                  jmx_attribute_keys=['used'])
+                                  jmx_attribute_keys=['used'],
+                                  jmx_manual_start=True)
         self.kafka.start()
 
         # seed kafka with messages
         for topic in self.topics:
-            self.producer = ProducerPerformanceService(
+            producer = ProducerPerformanceService(
                 self.test_context, 1, self.kafka,
                 topic=topic,
                 num_records=self.max_messages, record_size=self.message_size, throughput=-1, version=producer_version,
@@ -55,20 +56,26 @@ class DownconversionMemoryTest(Test):
                     'batch.size': self.batch_size
                 }
             )
-            self.producer.run()
+            producer.run()
+            print("Producer throughput:")
+            print(compute_aggregate_throughput(producer))
+
+        # start monitoring JMX
+        for node in self.kafka.nodes:
+            self.kafka.start_jmx_tool(self.kafka.idx(node), node)
 
         # consume
-        self.consumer = ConsumerPerformanceService(
+        consumer = ConsumerPerformanceService(
             self.test_context, self.num_consumers, self.kafka,
-            topic="test_topic.*", messages=self.max_messages, version=KafkaVersion(consumer_version), new_consumer=True)
-        self.consumer.group = "test-consumer-group"
-        self.consumer.run()
+            topic="test_topic", messages=self.max_messages, version=KafkaVersion(consumer_version), new_consumer=True)
+        consumer.group = "test-consumer-group"
+        consumer.run()
 
         self.kafka.read_jmx_output_all_nodes()
 
         heap_memory_usage_mbean = 'java.lang:type=Memory:HeapMemoryUsage'
-        self.logger.info("Average heap usage: %.2f" % self.kafka.average_jmx_value[heap_memory_usage_mbean])
-        self.logger.info("Maximum heap usage: %.2f" % self.kafka.maximum_jmx_value[heap_memory_usage_mbean])
+        print("Average heap usage: %.2f" % self.kafka.average_jmx_value[heap_memory_usage_mbean])
+        print("Maximum heap usage: %.2f" % self.kafka.maximum_jmx_value[heap_memory_usage_mbean])
 
-        return compute_aggregate_throughput(self.consumer)
+        return compute_aggregate_throughput(consumer)
 

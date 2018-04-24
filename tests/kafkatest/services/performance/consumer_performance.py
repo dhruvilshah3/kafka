@@ -70,7 +70,7 @@ class ConsumerPerformanceService(PerformanceService):
             "collect_default": True}
     }
 
-    def __init__(self, context, num_nodes, kafka, topic, messages, version=DEV_BRANCH, new_consumer=True, settings={}):
+    def __init__(self, context, num_nodes, kafka, topic, messages, version=DEV_BRANCH, new_consumer=True, timeout=None, settings={}):
         super(ConsumerPerformanceService, self).__init__(context, num_nodes)
         self.kafka = kafka
         self.security_config = kafka.security_config.client_config()
@@ -78,6 +78,7 @@ class ConsumerPerformanceService(PerformanceService):
         self.messages = messages
         self.new_consumer = new_consumer
         self.settings = settings
+        self.timeout = timeout
 
         assert version >= V_0_9_0_0 or (not new_consumer), \
             "new_consumer is only supported if version >= 0.9.0.0, version %s" % str(version)
@@ -100,7 +101,7 @@ class ConsumerPerformanceService(PerformanceService):
     def args(self, version):
         """Dictionary of arguments used to start the Consumer Performance script."""
         args = {
-            'topic': self.topic,
+            'topic': "\"%s\"" % self.topic,
             'messages': self.messages,
         }
 
@@ -138,6 +139,9 @@ class ConsumerPerformanceService(PerformanceService):
         cmd += " %s" % self.path.script("kafka-consumer-perf-test.sh", node)
         for key, value in self.args(node.version).items():
             cmd += " --%s %s" % (key, value)
+
+        if self.timeout:
+            cmd += " --timeout=%d" % self.timeout
 
         if node.version >= V_0_9_0_0:
             # This is only used for security settings

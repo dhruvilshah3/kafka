@@ -71,7 +71,7 @@ class KafkaService(KafkaPathResolverMixin, JmxMixin, Service):
     def __init__(self, context, num_nodes, zk, security_protocol=SecurityConfig.PLAINTEXT, interbroker_security_protocol=SecurityConfig.PLAINTEXT,
                  client_sasl_mechanism=SecurityConfig.SASL_MECHANISM_GSSAPI, interbroker_sasl_mechanism=SecurityConfig.SASL_MECHANISM_GSSAPI,
                  authorizer_class_name=None, topics=None, version=DEV_BRANCH, jmx_object_names=None,
-                 jmx_attributes=None, jmx_attribute_keys=None, zk_connect_timeout=5000, zk_session_timeout=6000,
+                 jmx_attributes=None, jmx_attribute_keys=None, jmx_manual_start=False, zk_connect_timeout=5000, zk_session_timeout=6000,
                  server_prop_overides=None, zk_chroot=None, heap_opts=None):
         """
         :type context
@@ -81,6 +81,7 @@ class KafkaService(KafkaPathResolverMixin, JmxMixin, Service):
         Service.__init__(self, context, num_nodes)
         JmxMixin.__init__(self, num_nodes=num_nodes, jmx_object_names=jmx_object_names, jmx_attributes=(jmx_attributes or []),
                           jmx_attribute_keys=(jmx_attribute_keys or []), root=KafkaService.PERSISTENT_ROOT)
+        self.jmx_manual_start = jmx_manual_start
 
         self.zk = zk
 
@@ -264,7 +265,10 @@ class KafkaService(KafkaPathResolverMixin, JmxMixin, Service):
         # existing credentials from ZK and dynamic update of credentials in Kafka are tested.
         self.security_config.setup_credentials(node, self.path, self.zk_connect_setting(), broker=False)
 
-        self.start_jmx_tool(self.idx(node), node)
+        if self.jmx_manual_start:
+            self.logger.debug("%s: Not starting jmx tool automatically" % node.account)
+        else:
+            self.start_jmx_tool(self.idx(node), node)
         if len(self.pids(node)) == 0:
             raise Exception("No process ids recorded on node %s" % node.account.hostname)
 
