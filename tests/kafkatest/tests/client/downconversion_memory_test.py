@@ -18,21 +18,21 @@ class DownconversionMemoryTest(Test):
         '''
         Test Setup:
         ==========
-        - Java heap size = 190MB
+        - Java heap size = 200MB
         - 1M messages, 1kB each ==> 1GB of total messages
-        - Split into 200 partitions ==> approximately 5MB per partition
-        - 1 consumer with `fetch.max.bytes` = 200MB and `max.partition.fetch.bytes` = 1MB
-        - Each fetch consumes min(1MB*200, 200MB) = 200MB i.e. 1MB from each partition for a total of 200MB
+        - Split into 300 partitions ==> approximately 3.5MB per partition
+        - 1 consumer with `fetch.max.bytes` = 250MB and `max.partition.fetch.bytes` = 1MB
+        - Each fetch consumes min(1MB*250, 250MB) = 250MB
         - Success criteria:
             - Must always run out of memory if not using lazy down-conversion
             - Must never run out of memory if using lazy down-conversion
         '''
-        self.heap_size = 190
+        self.heap_size = 200
         self.max_messages = 1024 * 1024
         self.message_size = 1024
         self.batch_size = self.message_size * 50
-        self.num_partitions = 200
-        self.max_fetch_size = 200 * 1024 * 1024
+        self.num_partitions = 250
+        self.max_fetch_size = 250 * 1024 * 1024
         self.num_producers = 1
         self.num_consumers = 1
         self.topics = ["test_topic"]
