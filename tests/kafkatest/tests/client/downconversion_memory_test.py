@@ -18,25 +18,38 @@ class DownconversionMemoryTest(Test):
         '''
         Test Setup:
         ==========
+        - Java heap size = 190MB
         - 1M messages, 1kB each ==> 1GB of total messages
-        - Split into 12 partitions ==> ~85MB per partition
-        - 7 concurrent consumers with `fetch.max.bytes` = 50MB and `max.partition.fetch.bytes` = 1MB (both defaults)
-        - Each fetch consumes min(1MB*12, 50MB) = 12MB i.e. 1MB from each partition for a total of 12MB
+        - Split into 200 partitions ==> approximately 5MB per partition
+        - 1 consumer with `fetch.max.bytes` = 200MB and `max.partition.fetch.bytes` = 1MB
+        - Each fetch consumes min(1MB*200, 200MB) = 200MB i.e. 1MB from each partition for a total of 200MB
+        - Success criteria:
+            - Must always run out of memory if not using lazy down-conversion
+            - Must never run out of memory if using lazy down-conversion
         '''
+        self.heap_size = 190
         self.max_messages = 1024 * 1024
-        self.producer_throughput = self.max_messages
-        self.num_producers = 1
-        self.num_consumers = 1
         self.message_size = 1024
         self.batch_size = self.message_size * 50
-        self.fetch_size = 12 * 1024 * self.message_size
         self.num_partitions = 200
+        self.max_fetch_size = 200 * 1024 * 1024
+        self.num_producers = 1
+        self.num_consumers = 1
         self.topics = ["test_topic"]
         self.zk = ZookeeperService(self.test_context, num_nodes=1)
-        self.heap_dump_path = "/mnt/broker-heap-dump"
+        self.heap_dump_path = "/mnt/"
 
     def setUp(self):
         self.zk.start()
+
+    def report_metrics(self):
+        self.kafka.read_jmx_output_all_nodes()
+        heap_memory_usage_mbean = 'java.lang:type=Memory:HeapMemoryUsage'
+        print("Average heap usage: %.2f" % self.kafka.average_jmx_value[heap_memory_usage_mbean])
+        print("Maximum heap usage: %.2f" % self.kafka.maximum_jmx_value[heap_memory_usage_mbean])
+        for node in self.kafka.nodes:
+            if self.kafka.file_exists(node, self.heap_dump_path + "*.hprof"):
+                print("Broker on node %d ran out of memory" % self.kafka.idx(node))
 
     @cluster(num_nodes=12)
     @parametrize(producer_version=str(DEV_BRANCH), consumer_version=str(LATEST_0_10))
@@ -47,7 +60,7 @@ class DownconversionMemoryTest(Test):
                                                "replication-factor": 1,
                                                "configs": {"min.insync.replicas": 1}}
                                           for topic in self.topics},
-                                  heap_opts="-Xmx190M -Xms190M -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/mnt/",
+                                  heap_opts="-Xmx%dM -Xms%dM -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=%s" % (self.heap_size, self.heap_size, self.heap_dump_path),
                                   jmx_object_names=['java.lang:type=Memory'],
                                   jmx_attributes=['HeapMemoryUsage'],
                                   jmx_attribute_keys=['used'],
@@ -58,8 +71,7 @@ class DownconversionMemoryTest(Test):
         # seed kafka with messages
         for topic in self.topics:
             producer = ProducerPerformanceService(
-                self.test_context, 1, self.kafka,
-                topic=topic,
+                self.test_context, self.num_producers, self.kafka, topic=topic,
                 num_records=self.max_messages, record_size=self.message_size, throughput=-1, version=producer_version,
                 settings={
                     'acks': 1,
@@ -73,16 +85,13 @@ class DownconversionMemoryTest(Test):
         # start monitoring JMX
         for node in self.kafka.nodes:
             self.kafka.start_jmx_tool(self.kafka.idx(node), node)
+
+        # sleep for a bit to collect steady-state heap usage
         time.sleep(5)
 
+        # report metrics before start of consumption
         print("----- Before -----")
-        self.kafka.read_jmx_output_all_nodes()
-        heap_memory_usage_mbean = 'java.lang:type=Memory:HeapMemoryUsage'
-        print("Average heap usage: %.2f" % self.kafka.average_jmx_value[heap_memory_usage_mbean])
-        print("Maximum heap usage: %.2f" % self.kafka.maximum_jmx_value[heap_memory_usage_mbean])
-        for node in self.kafka.nodes:
-            if self.kafka.file_exists(node, "/mnt/*.hprof"):
-                print("Broker on node %d ran out of memory" % self.kafka.idx(node))
+        self.report_metrics()
         print("----------")
         self.kafka.jmx_stats = [{} for x in range(self.kafka.num_nodes)]
 
@@ -91,23 +100,17 @@ class DownconversionMemoryTest(Test):
             consumer = ConsumerPerformanceService(
                 self.test_context, self.num_consumers, self.kafka,
                 topic=topic, messages=self.max_messages, version=KafkaVersion(consumer_version), new_consumer=True,
-                config={"fetch.max.bytes": 200*1024*1024})
-            # consumer.group = "test-consumer-group"
+                config={"fetch.max.bytes": self.max_fetch_size})
             consumer.run()
 
+        # report metrics after consumption
         print("----- After -----")
-        self.kafka.read_jmx_output_all_nodes()
-        heap_memory_usage_mbean = 'java.lang:type=Memory:HeapMemoryUsage'
-        print("Average heap usage: %.2f" % self.kafka.average_jmx_value[heap_memory_usage_mbean])
-        print("Maximum heap usage: %.2f" % self.kafka.maximum_jmx_value[heap_memory_usage_mbean])
-        for node in self.kafka.nodes:
-            if self.kafka.file_exists(node, "/mnt/*.hprof"):
-                print("Broker on node %d ran out of memory" % self.kafka.idx(node))
+        self.report_metrics()
         print("----------")
 
-        print '--- Total records consumed ---'
+        print "----- Total records consumed -----"
         for result in consumer.results:
             print(result['records'])
-        print '------'
+        print "----------"
 
         return compute_aggregate_throughput(consumer)
