@@ -20,7 +20,7 @@ class DownconversionMemoryTest(Test):
         ==========
         - Java heap size = 200MB
         - 1M messages, 1kB each ==> 1GB of total messages
-        - Split into 300 partitions ==> approximately 3.5MB per partition
+        - Split into 250 partitions ==> approximately 4MB per partition
         - 1 consumer with `fetch.max.bytes` = 250MB and `max.partition.fetch.bytes` = 1MB
         - Each fetch consumes min(1MB*250, 250MB) = 250MB
         - Success criteria:
