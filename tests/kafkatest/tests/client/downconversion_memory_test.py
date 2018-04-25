@@ -16,7 +16,6 @@ class DownconversionMemoryTest(Test):
         # Producer and consumer
         self.max_messages = 1000000
         self.producer_throughput = self.max_messages
-        self.timeout_sec = 2*60
         self.num_producers = 1
         self.num_consumers = 7
         self.message_size = 1024
@@ -38,11 +37,12 @@ class DownconversionMemoryTest(Test):
                                                "replication-factor": 1,
                                                "configs": {"min.insync.replicas": 1}}
                                           for topic in self.topics},
-                                  heap_opts="-Xmx256M -Xms256M",
+                                  heap_opts="-Xmx185M -Xms185M -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/mnt/",
                                   jmx_object_names=['java.lang:type=Memory'],
                                   jmx_attributes=['HeapMemoryUsage'],
                                   jmx_attribute_keys=['used'],
-                                  jmx_manual_start=True)
+                                  jmx_manual_start=True,
+                                  do_logging=False)
         self.kafka.start()
 
         # seed kafka with messages
@@ -78,5 +78,8 @@ class DownconversionMemoryTest(Test):
         print("Average heap usage: %.2f" % self.kafka.average_jmx_value[heap_memory_usage_mbean])
         print("Maximum heap usage: %.2f" % self.kafka.maximum_jmx_value[heap_memory_usage_mbean])
 
-        return compute_aggregate_throughput(consumer)
+        for node in self.kafka.nodes:
+            if self.kafka.file_exists(node, "/mnt/*.hprof"):
+                print("Broker on node %d ran out of memory" % self.kafka.idx(node))
 
+        return compute_aggregate_throughput(consumer)
