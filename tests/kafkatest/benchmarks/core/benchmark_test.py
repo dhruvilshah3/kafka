@@ -131,6 +131,7 @@ class Benchmark(Test):
             },
             intermediate_stats=True
         )
+        self.producer.log_level = "DEBUG"
         self.producer.run()
 
         summary = ["Throughput over long run, data > memory:"]
