@@ -160,12 +160,16 @@ class LeaderEpochFileCache(topicPartition: TopicPartition,
     * Removes all epoch entries from the store with start offsets greater than or equal to the passed offset.
     */
   def truncateFromEnd(endOffset: Long): Unit = {
+    debug("[CACHE_DEBUG] Entering truncateFromEnd")
     inWriteLock(lock) {
       if (endOffset >= 0 && latestEntry.exists(_.startOffset >= endOffset)) {
         val (subsequentEntries, previousEntries) = epochs.partition(_.startOffset >= endOffset)
         epochs = previousEntries
 
+        val startMs = System.currentTimeMillis()
+        debug("[CACHE_DEBUG] Starting flush")
         flush()
+        debug(s"[CACHE_DEBUG] Flush complete in ${System.currentTimeMillis() - startMs}")
 
         debug(s"Cleared entries $subsequentEntries from epoch cache after " +
           s"truncating to end offset $endOffset, leaving ${epochs.size} entries in the cache.")
@@ -182,6 +186,7 @@ class LeaderEpochFileCache(topicPartition: TopicPartition,
     * @param startOffset the offset to clear up to
     */
   def truncateFromStart(startOffset: Long): Unit = {
+    debug("[CACHE_DEBUG] Entering truncateFromStart")
     inWriteLock(lock) {
       if (epochs.nonEmpty) {
         val (subsequentEntries, previousEntries) = epochs.partition(_.startOffset > startOffset)
@@ -190,7 +195,10 @@ class LeaderEpochFileCache(topicPartition: TopicPartition,
           val updatedFirstEntry = EpochEntry(firstBeforeStartOffset.epoch, startOffset)
           epochs = updatedFirstEntry +: subsequentEntries
 
+          val startMs = System.currentTimeMillis()
+          debug("[CACHE_DEBUG] Starting flush")
           flush()
+          debug(s"[CACHE_DEBUG] Flush complete in ${System.currentTimeMillis() - startMs}")
 
           debug(s"Cleared entries $previousEntries and rewrote first entry $updatedFirstEntry after " +
             s"truncating to start offset $startOffset, leaving ${epochs.size} in the cache.")
