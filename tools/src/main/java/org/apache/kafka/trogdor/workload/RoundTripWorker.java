@@ -30,6 +30,7 @@ import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.config.ConfigException;
+import org.apache.kafka.common.errors.InterruptException;
 import org.apache.kafka.common.errors.TimeoutException;
 import org.apache.kafka.common.errors.WakeupException;
 import org.apache.kafka.common.internals.KafkaFutureImpl;
@@ -111,10 +112,16 @@ public class RoundTripWorker implements TaskWorker {
         this.producer = null;
         this.consumer = null;
         this.unackedSends = spec.maxMessages();
-        executor.submit(new Prepare());
+        executor.submit(new Prepare(false));
     }
 
     class Prepare implements Runnable {
+        private final boolean recreateTopics;
+
+        Prepare(boolean recreateTopics) {
+            this.recreateTopics = recreateTopics;
+        }
+
         @Override
         public void run() {
             try {
@@ -136,8 +143,19 @@ public class RoundTripWorker implements TaskWorker {
                     throw new RuntimeException("You must specify at least one active topic.");
                 }
                 status.update(new TextNode("Creating " + newTopics.keySet().size() + " topic(s)"));
-                WorkerUtils.createTopics(log, spec.bootstrapServers(), spec.commonClientConf(),
-                    spec.adminClientConf(), newTopics, true);
+
+                boolean done = false;
+                while (!done) {
+                    try {
+                        WorkerUtils.createTopics(log, spec.bootstrapServers(), spec.commonClientConf(),
+                                spec.adminClientConf(), newTopics, true);
+                        done = true;
+                    } catch (Exception e) {
+                        if (!recreateTopics)
+                            throw e;
+                    }
+                }
+
                 status.update(new TextNode("Created " + newTopics.keySet().size() + " topic(s)"));
                 toSendTracker = new ToSendTracker(spec.maxMessages());
                 toReceiveTracker = new ToReceiveTracker();
@@ -147,8 +165,7 @@ public class RoundTripWorker implements TaskWorker {
                 executor.scheduleWithFixedDelay(
                     new StatusUpdater(), 30, 30, TimeUnit.SECONDS);
                 if (spec.topicRecreatePeriodMs() > 0)
-                    executor.scheduleWithFixedDelay(
-                            new TopicRecreator(), 30, spec.topicRecreatePeriodMs(), TimeUnit.MILLISECONDS);
+                    executor.submit(new TopicRecreator());
             } catch (Throwable e) {
                 WorkerUtils.abort(log, "Prepare", e, doneFuture);
             }
@@ -262,7 +279,7 @@ public class RoundTripWorker implements TaskWorker {
                         }
                     });
                 }
-            } catch (InterruptedException e) {
+            } catch (InterruptedException | InterruptException e) {
                 log.info("{}: ProducerRunnable interrupted", id, e);
             } catch (Throwable e) {
                 WorkerUtils.abort(log, "ProducerRunnable", e, doneFuture);
@@ -383,7 +400,7 @@ public class RoundTripWorker implements TaskWorker {
                         log.debug("{}: Consumer got TimeoutException", id, e);
                     }
                 }
-            } catch (InterruptedException e) {
+            } catch (InterruptedException | InterruptException e) {
                 log.info("{}: ConsumerRunnable interrupted", id, e);
             } catch (Throwable e) {
                 WorkerUtils.abort(log, "ConsumerRunnable", e, doneFuture);
@@ -418,9 +435,12 @@ public class RoundTripWorker implements TaskWorker {
         @Override
         public void run() {
             try {
-                stopCurrentTasks();
-                deleteTopics();
-                executor.submit(new Prepare()).get();
+                while (true) {
+                    Thread.sleep(spec.topicRecreatePeriodMs());
+                    stopCurrentTasks();
+                    deleteTopics();
+                    executor.submit(new Prepare(true)).get();
+                }
             } catch (Throwable t) {
                 WorkerUtils.abort(log, "TopicRecreator", t, doneFuture);
             }
@@ -435,9 +455,11 @@ public class RoundTripWorker implements TaskWorker {
         }
 
         private void deleteTopics() throws Exception {
+            log.info("Deleting topics");
             Set<String> activeTopics = spec.activeTopics().materialize().keySet();
             WorkerUtils.deleteTopics(log, spec.bootstrapServers(), spec.commonClientConf(),
                     spec.adminClientConf(), activeTopics);
+            log.info("Topic deletion successful");
         }
     }
 
