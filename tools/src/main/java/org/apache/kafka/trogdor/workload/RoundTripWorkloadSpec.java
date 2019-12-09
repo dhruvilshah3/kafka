@@ -37,6 +37,7 @@ public class RoundTripWorkloadSpec extends TaskSpec {
     private final PayloadGenerator valueGenerator;
     private final TopicsSpec activeTopics;
     private final long maxMessages;
+    private final long topicRecreatePeriodMs;
     private final Map<String, String> commonClientConf;
     private final Map<String, String> producerConf;
     private final Map<String, String> consumerConf;
@@ -54,7 +55,8 @@ public class RoundTripWorkloadSpec extends TaskSpec {
              @JsonProperty("targetMessagesPerSec") int targetMessagesPerSec,
              @JsonProperty("valueGenerator") PayloadGenerator valueGenerator,
              @JsonProperty("activeTopics") TopicsSpec activeTopics,
-             @JsonProperty("maxMessages") long maxMessages) {
+             @JsonProperty("maxMessages") long maxMessages,
+             @JsonProperty("topicRecreatePeriodMs") long topicRecreatePeriodMs) {
         super(startMs, durationMs);
         this.clientNode = clientNode == null ? "" : clientNode;
         this.bootstrapServers = bootstrapServers == null ? "" : bootstrapServers;
@@ -64,6 +66,7 @@ public class RoundTripWorkloadSpec extends TaskSpec {
         this.activeTopics = activeTopics == null ?
             TopicsSpec.EMPTY : activeTopics.immutableCopy();
         this.maxMessages = maxMessages;
+        this.topicRecreatePeriodMs = topicRecreatePeriodMs;
         this.commonClientConf = configOrEmptyMap(commonClientConf);
         this.adminClientConf = configOrEmptyMap(adminClientConf);
         this.producerConf = configOrEmptyMap(producerConf);
@@ -98,6 +101,11 @@ public class RoundTripWorkloadSpec extends TaskSpec {
     @JsonProperty
     public long maxMessages() {
         return maxMessages;
+    }
+
+    @JsonProperty
+    public long topicRecreatePeriodMs() {
+        return topicRecreatePeriodMs;
     }
 
     @JsonProperty

@@ -56,8 +56,10 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -67,40 +69,28 @@ import java.util.concurrent.locks.ReentrantLock;
 
 public class RoundTripWorker implements TaskWorker {
     private static final int THROTTLE_PERIOD_MS = 100;
-
     private static final int LOG_INTERVAL_MS = 5000;
-
     private static final int LOG_NUM_MESSAGES = 10;
-
     private static final Logger log = LoggerFactory.getLogger(RoundTripWorker.class);
-
     private static final PayloadGenerator KEY_GENERATOR = new SequentialPayloadGenerator(4, 0);
 
-    private ToReceiveTracker toReceiveTracker;
-
     private final String id;
-
     private final RoundTripWorkloadSpec spec;
-
     private final AtomicBoolean running = new AtomicBoolean(false);
-
     private final Lock lock = new ReentrantLock();
-
     private final Condition unackedSendsAreZero = lock.newCondition();
 
     private ScheduledExecutorService executor;
-
     private WorkerStatusTracker status;
-
     private KafkaFutureImpl<String> doneFuture;
-
     private KafkaProducer<byte[], byte[]> producer;
-
     private KafkaConsumer<byte[], byte[]> consumer;
-
     private Long unackedSends;
 
-    private ToSendTracker toSendTracker;
+    private volatile ToSendTracker toSendTracker;
+    private volatile ToReceiveTracker toReceiveTracker;
+    private volatile Future<?> produceTask;
+    private volatile Future<?> consumeTask;
 
     public RoundTripWorker(String id, RoundTripWorkloadSpec spec) {
         this.id = id;
@@ -151,11 +141,14 @@ public class RoundTripWorker implements TaskWorker {
                 status.update(new TextNode("Created " + newTopics.keySet().size() + " topic(s)"));
                 toSendTracker = new ToSendTracker(spec.maxMessages());
                 toReceiveTracker = new ToReceiveTracker();
-                executor.submit(new ProducerRunnable(active));
-                executor.submit(new ConsumerRunnable(active));
+                produceTask = executor.submit(new ProducerRunnable(active));
+                consumeTask = executor.submit(new ConsumerRunnable(active));
                 executor.submit(new StatusUpdater());
                 executor.scheduleWithFixedDelay(
                     new StatusUpdater(), 30, 30, TimeUnit.SECONDS);
+                if (spec.topicRecreatePeriodMs() > 0)
+                    executor.scheduleWithFixedDelay(
+                            new TopicRecreator(), 30, spec.topicRecreatePeriodMs(), TimeUnit.MILLISECONDS);
             } catch (Throwable e) {
                 WorkerUtils.abort(log, "Prepare", e, doneFuture);
             }
@@ -269,10 +262,13 @@ public class RoundTripWorker implements TaskWorker {
                         }
                     });
                 }
+            } catch (InterruptedException e) {
+                log.info("{}: ProducerRunnable interrupted", id, e);
             } catch (Throwable e) {
                 WorkerUtils.abort(log, "ProducerRunnable", e, doneFuture);
             } finally {
                 try {
+                    producer.close(Duration.ZERO);
                     lock.lock();
                     log.info("{}: ProducerRunnable is exiting.  messagesSent={}; uniqueMessagesSent={}; " +
                                     "ackedSends={}/{}.", id, messagesSent, uniqueMessagesSent,
@@ -387,9 +383,12 @@ public class RoundTripWorker implements TaskWorker {
                         log.debug("{}: Consumer got TimeoutException", id, e);
                     }
                 }
+            } catch (InterruptedException e) {
+                log.info("{}: ConsumerRunnable interrupted", id, e);
             } catch (Throwable e) {
                 WorkerUtils.abort(log, "ConsumerRunnable", e, doneFuture);
             } finally {
+                consumer.close(Duration.ZERO);
                 log.info("{}: ConsumerRunnable is exiting.  Invoked poll {} time(s).  " +
                     "messagesReceived = {}; uniqueMessagesReceived = {}.",
                     id, pollInvoked, messagesReceived, uniqueMessagesReceived);
@@ -412,6 +411,33 @@ public class RoundTripWorker implements TaskWorker {
                 new StatusData(toSendTracker.frontier(), toReceiveTracker.totalReceived());
             status.update(JsonUtil.JSON_SERDE.valueToTree(statusData));
             return statusData;
+        }
+    }
+
+    private class TopicRecreator implements Runnable {
+        @Override
+        public void run() {
+            try {
+                stopCurrentTasks();
+                deleteTopics();
+                executor.submit(new Prepare()).get();
+            } catch (Throwable t) {
+                WorkerUtils.abort(log, "TopicRecreator", t, doneFuture);
+            }
+        }
+
+        private void stopCurrentTasks() {
+            status.update(new TextNode("Stopping active tasks to recreate topic(s)"));
+            if (produceTask != null)
+                produceTask.cancel(true);
+            if (consumeTask != null)
+                consumeTask.cancel(true);
+        }
+
+        private void deleteTopics() throws Exception {
+            Set<String> activeTopics = spec.activeTopics().materialize().keySet();
+            WorkerUtils.deleteTopics(log, spec.bootstrapServers(), spec.commonClientConf(),
+                    spec.adminClientConf(), activeTopics);
         }
     }
 

@@ -140,6 +140,20 @@ public final class WorkerUtils {
         }
     }
 
+    public static void deleteTopics(Logger log,
+                                    String bootstrapServers,
+                                    Map<String, String> commonClientConf,
+                                    Map<String, String> adminClientConf,
+                                    Collection<String> topics) throws Exception {
+        try (Admin adminClient
+                     = createAdminClient(bootstrapServers, commonClientConf, adminClientConf)) {
+            adminClient.deleteTopics(topics).all().get();
+        } catch (Exception e) {
+            log.warn("Failed to delete topics {}", topics, e);
+            throw e;
+        }
+    }
+
     /**
      * The actual create topics functionality is separated into this method and called from the
      * above method to be able to unit test with mock adminClient.
