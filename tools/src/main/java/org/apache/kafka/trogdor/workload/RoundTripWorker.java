@@ -268,11 +268,11 @@ public class RoundTripWorker implements TaskWorker {
                 WorkerUtils.abort(log, "ProducerRunnable", e, doneFuture);
             } finally {
                 try {
-                    producer.close(Duration.ZERO);
                     lock.lock();
                     log.info("{}: ProducerRunnable is exiting.  messagesSent={}; uniqueMessagesSent={}; " +
                                     "ackedSends={}/{}.", id, messagesSent, uniqueMessagesSent,
                             spec.maxMessages() - unackedSends, spec.maxMessages());
+                    producer.close(Duration.ZERO);
                 } finally {
                     lock.unlock();
                 }
@@ -388,10 +388,10 @@ public class RoundTripWorker implements TaskWorker {
             } catch (Throwable e) {
                 WorkerUtils.abort(log, "ConsumerRunnable", e, doneFuture);
             } finally {
-                consumer.close(Duration.ZERO);
                 log.info("{}: ConsumerRunnable is exiting.  Invoked poll {} time(s).  " +
                     "messagesReceived = {}; uniqueMessagesReceived = {}.",
                     id, pollInvoked, messagesReceived, uniqueMessagesReceived);
+                consumer.close(Duration.ZERO);
             }
         }
     }
