@@ -134,9 +134,6 @@ public final class WorkerUtils {
         try (Admin adminClient
                  = createAdminClient(bootstrapServers, commonClientConf, adminClientConf)) {
             createTopics(log, adminClient, topics, failOnExisting);
-        } catch (Exception e) {
-            log.warn("Failed to create or verify topics {}", topics, e);
-            throw e;
         }
     }
 
@@ -148,9 +145,9 @@ public final class WorkerUtils {
         try (Admin adminClient
                      = createAdminClient(bootstrapServers, commonClientConf, adminClientConf)) {
             adminClient.deleteTopics(topics).all().get();
-        } catch (Exception e) {
-            log.warn("Failed to delete topics {}", topics, e);
-            throw e;
+        } catch (ExecutionException e) {
+            if (!(e.getCause() instanceof UnknownTopicOrPartitionException))
+                throw e;
         }
     }
 
@@ -171,12 +168,10 @@ public final class WorkerUtils {
 
         Collection<String> topicsExists = createTopics(log, adminClient, topics.values());
         if (!topicsExists.isEmpty()) {
-            if (failOnExisting) {
-                log.warn("Topic(s) {} already exist.", topicsExists);
+            if (failOnExisting)
                 throw new TopicExistsException("One or more topics already exist.");
-            } else {
+            else
                 verifyTopics(log, adminClient, topicsExists, topics, 3, 2500);
-            }
         }
     }
 

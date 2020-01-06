@@ -51,6 +51,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -87,6 +88,7 @@ public class RoundTripWorker implements TaskWorker {
     private KafkaProducer<byte[], byte[]> producer;
     private KafkaConsumer<byte[], byte[]> consumer;
     private Long unackedSends;
+    private boolean initialized = false;
 
     private volatile ToSendTracker toSendTracker;
     private volatile ToReceiveTracker toReceiveTracker;
@@ -112,6 +114,8 @@ public class RoundTripWorker implements TaskWorker {
         this.producer = null;
         this.consumer = null;
         this.unackedSends = spec.maxMessages();
+        WorkerUtils.deleteTopics(log, spec.bootstrapServers(), spec.commonClientConf(),
+                spec.adminClientConf(), spec.activeTopics().materialize().keySet());
         executor.submit(new Prepare(false));
     }
 
@@ -144,15 +148,22 @@ public class RoundTripWorker implements TaskWorker {
                 }
                 status.update(new TextNode("Creating " + newTopics.keySet().size() + " topic(s)"));
 
-                boolean done = false;
-                while (!done) {
-                    try {
-                        WorkerUtils.createTopics(log, spec.bootstrapServers(), spec.commonClientConf(),
-                                spec.adminClientConf(), newTopics, true);
-                        done = true;
-                    } catch (Exception e) {
-                        if (!recreateTopics)
-                            throw e;
+                for (Map.Entry<String, NewTopic> newTopic : newTopics.entrySet()) {
+                    Map<String, NewTopic> topicToCreate = Collections.singletonMap(newTopic.getKey(), newTopic.getValue());
+
+                    boolean done = false;
+                    while (!done) {
+                        try {
+                            log.info("Creating topic {}", newTopic.getKey());
+                            WorkerUtils.createTopics(log, spec.bootstrapServers(), spec.commonClientConf(),
+                                    spec.adminClientConf(), topicToCreate, true);
+                            done = true;
+                        } catch (Exception e) {
+                            if (!recreateTopics)
+                                throw e;
+                            else
+                                log.error("Caught exception creating topic", e);
+                        }
                     }
                 }
 
@@ -161,11 +172,16 @@ public class RoundTripWorker implements TaskWorker {
                 toReceiveTracker = new ToReceiveTracker();
                 produceTask = executor.submit(new ProducerRunnable(active));
                 consumeTask = executor.submit(new ConsumerRunnable(active));
-                executor.submit(new StatusUpdater());
-                executor.scheduleWithFixedDelay(
-                    new StatusUpdater(), 30, 30, TimeUnit.SECONDS);
-                if (spec.topicRecreatePeriodMs() > 0)
-                    executor.submit(new TopicRecreator());
+
+                if (!initialized) {
+                    executor.submit(new StatusUpdater());
+                    executor.scheduleWithFixedDelay(
+                            new StatusUpdater(), 30, 30, TimeUnit.SECONDS);
+                    if (spec.topicRecreatePeriodMs() > 0)
+                        executor.scheduleWithFixedDelay(
+                                new TopicRecreator(), spec.topicRecreatePeriodMs(), 30, TimeUnit.MILLISECONDS);
+                    initialized = true;
+                }
             } catch (Throwable e) {
                 WorkerUtils.abort(log, "Prepare", e, doneFuture);
             }
@@ -437,9 +453,13 @@ public class RoundTripWorker implements TaskWorker {
             try {
                 while (true) {
                     Thread.sleep(spec.topicRecreatePeriodMs());
+                    log.info("[foo] stopping current tasks");
                     stopCurrentTasks();
+                    log.info("[foo] deleting topic");
                     deleteTopics();
+                    log.info("[foo] submitting new creation");
                     executor.submit(new Prepare(true)).get();
+                    log.info("[foo] done with recreation");
                 }
             } catch (Throwable t) {
                 WorkerUtils.abort(log, "TopicRecreator", t, doneFuture);
@@ -455,8 +475,8 @@ public class RoundTripWorker implements TaskWorker {
         }
 
         private void deleteTopics() throws Exception {
-            log.info("Deleting topics");
             Set<String> activeTopics = spec.activeTopics().materialize().keySet();
+            log.info("Deleting topics {}", activeTopics);
             WorkerUtils.deleteTopics(log, spec.bootstrapServers(), spec.commonClientConf(),
                     spec.adminClientConf(), activeTopics);
             log.info("Topic deletion successful");
